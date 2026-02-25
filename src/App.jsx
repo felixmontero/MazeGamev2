@@ -4,14 +4,21 @@ import GameCanvas from './components/GameCanvas.jsx';
 import WinScreen from './components/WinScreen.jsx';
 import { createMaze } from './game/mazeData.js';
 import { createGameState } from './game/gameEngine.js';
+import { generateRandomMaze } from './game/mazeGenerator.js';
 
 export default function App() {
     // screen: 'start' | 'playing' | 'won'
     const [screen, setScreen] = useState('start');
     const [gameState, setGameState] = useState(null);
 
-    function handleStart(mapId) {
-        const maze = createMaze(mapId);
+    function handleStart(config) {
+        let maze;
+        if (config.mode === 'random') {
+            maze = generateRandomMaze(config.size, config.size);
+        } else {
+            maze = createMaze(config.id);
+        }
+
         const state = createGameState(maze);
         setGameState(state);
         setScreen('playing');
