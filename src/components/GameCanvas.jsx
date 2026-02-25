@@ -349,9 +349,9 @@ export default function GameCanvas({ gameState, onStateChange, onWin }) {
             const newRoomInfo = getRoomInfo(result.state);
             playWalkAnimation(dir, result.state, newRoomInfo, () => {
                 onStateChange(result.state);
+                showMessage(result.message, 'success');
                 if (result.state.won) onWin(result.state);
             });
-            showMessage(result.message, 'success');
         } else {
             showMessage(result.message, 'error');
             // Quick "bump" animation against the wall

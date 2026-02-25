@@ -19,8 +19,8 @@ export function generateRandomMaze(width, height) {
                 sides: {
                     NORTH: { type: 'wall' },
                     SOUTH: { type: 'wall' },
-                    EAST:  { type: 'wall' },
-                    WEST:  { type: 'wall' },
+                    EAST: { type: 'wall' },
+                    WEST: { type: 'wall' },
                 }
             };
             grid[y][x] = roomNumber;
@@ -30,7 +30,7 @@ export function generateRandomMaze(width, height) {
     // 2. Recursive Backtracking to carve perfect maze paths
     const visited = new Set();
     const stack = [];
-    
+
     // Start at room 1 (0,0)
     const startX = 0;
     const startY = 0;
@@ -41,19 +41,19 @@ export function generateRandomMaze(width, height) {
     const directions = [
         { dir: 'NORTH', dx: 0, dy: -1 },
         { dir: 'SOUTH', dx: 0, dy: 1 },
-        { dir: 'EAST',  dx: 1, dy: 0 },
-        { dir: 'WEST',  dx: -1, dy: 0 }
+        { dir: 'EAST', dx: 1, dy: 0 },
+        { dir: 'WEST', dx: -1, dy: 0 }
     ];
 
     while (stack.length > 0) {
         const current = stack[stack.length - 1];
-        
+
         // Find unvisited neighbors
         const neighbors = [];
         for (const { dir, dx, dy } of directions) {
             const nx = current.x + dx;
             const ny = current.y + dy;
-            
+
             if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
                 const nRoom = grid[ny][nx];
                 if (!visited.has(nRoom)) {
@@ -65,7 +65,7 @@ export function generateRandomMaze(width, height) {
         if (neighbors.length > 0) {
             // Pick a random unvisited neighbor
             const next = neighbors[Math.floor(Math.random() * neighbors.length)];
-            
+
             // Carve path (create an open door between current and next)
             const doorId = `d_${nextDoorId++}`;
             doors[doorId] = {
@@ -90,55 +90,95 @@ export function generateRandomMaze(width, height) {
     const targetRoomId = grid[height - 1][width - 1];
     rooms[targetRoomId].isTarget = true;
 
-    // 4. Distribute Items (Coins and Locked Doors with Keys)
-    let totalRooms = width * height;
-    
-    // Place some coins randomly (~20% of rooms)
-    for (let i = 2; i <= totalRooms; i++) { // Skip starting room
-        if (i !== targetRoomId && Math.random() < 0.2) {
+    // 4. Distribute Items using BFS reachability
+    const totalRooms = width * height;
+
+    // Place some coins randomly (~25% of rooms, skip start and target)
+    for (let i = 2; i <= totalRooms; i++) {
+        if (i !== targetRoomId && Math.random() < 0.25) {
             rooms[i].items.push({ type: 'coin' });
         }
     }
 
-    // Place locked doors (close some random doors that are on the main paths)
-    // We will place a key in a random room before the locked door.
-    // For simplicity, we just randomly pick a few rooms to put a key, and lock one of their specific doors.
-    const numLockedDoors = Math.max(1, Math.floor(totalRooms / 15));
-    let lockedCount = 0;
-    
-    // All door IDs that are generated
-    const allDoorIds = Object.keys(doors);
-    
-    while (lockedCount < numLockedDoors && allDoorIds.length > 0) {
-        // Pick a random door to lock
-        const doorIdx = Math.floor(Math.random() * allDoorIds.length);
-        const doorToLockId = allDoorIds[doorIdx];
-        const doorToLock = doors[doorToLockId];
-        
-        // Don't lock doors connected to the start room
-        if (doorToLock.room1 !== 1 && doorToLock.room2 !== 1 && doorToLock.open) {
-            doorToLock.open = false; // Lock it!
-            
-            // Place the key randomly in any room smaller than the smaller room connected to door 
-            // (heuristic to ensure key is found before the door usually)
-            let maxRoomForKey = Math.min(doorToLock.room1, doorToLock.room2);
-            let keyRoomId = maxRoomForKey > 2 ? Math.floor(Math.random() * (maxRoomForKey - 1)) + 1 : 1;
-            
-            // Ensure key is not in target room
-            if (keyRoomId === targetRoomId) keyRoomId = 1;
-
-            rooms[keyRoomId].items.push({
-                type: 'key',
-                name: `Clau ${lockedCount + 1}`,
-                doorIds: [doorToLockId],
-                cost: 0 // In random maze, keys are found free
-            });
-            lockedCount++;
+    // BFS helper: find all rooms reachable from `startId` using only open doors
+    function getReachableRooms(fromId, doorsState) {
+        const reachable = new Set();
+        const queue = [fromId];
+        reachable.add(fromId);
+        while (queue.length > 0) {
+            const curr = queue.shift();
+            for (const dir of ['NORTH', 'SOUTH', 'EAST', 'WEST']) {
+                const side = rooms[curr].sides[dir];
+                if (side.type === 'door') {
+                    const door = doorsState[side.doorId];
+                    if (door.open) {
+                        const neighbor = door.room1 === curr ? door.room2 : door.room1;
+                        if (!reachable.has(neighbor)) {
+                            reachable.add(neighbor);
+                            queue.push(neighbor);
+                        }
+                    }
+                }
+            }
         }
-        allDoorIds.splice(doorIdx, 1);
+        return reachable;
     }
 
-    // Ensure the player starts with 0 coins
+    // Lock some random doors and place keys in reachable areas
+    const numLockedDoors = Math.max(1, Math.floor(totalRooms / 15));
+    const candidateDoorIds = Object.keys(doors).filter(did => {
+        const d = doors[did];
+        return d.room1 !== 1 && d.room2 !== 1; // don't lock doors touching start
+    });
+
+    // Shuffle candidates
+    for (let i = candidateDoorIds.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidateDoorIds[i], candidateDoorIds[j]] = [candidateDoorIds[j], candidateDoorIds[i]];
+    }
+
+    let lockedCount = 0;
+    for (const doorId of candidateDoorIds) {
+        if (lockedCount >= numLockedDoors) break;
+
+        // Tentatively lock this door
+        doors[doorId].open = false;
+
+        // Check what rooms are reachable from start with this door locked
+        const reachable = getReachableRooms(1, doors);
+
+        // We need to place the key in a reachable room (not target, not start ideally)
+        const reachableArray = [...reachable].filter(r => r !== targetRoomId);
+
+        if (reachableArray.length < 2) {
+            // Locking this door isolates too much — revert and skip
+            doors[doorId].open = true;
+            continue;
+        }
+
+        // Also verify the target is still eventually reachable if we unlock this door
+        doors[doorId].open = true;
+        const fullReachable = getReachableRooms(1, doors);
+        doors[doorId].open = false;
+
+        if (!fullReachable.has(targetRoomId)) {
+            // Target not reachable even without this lock — revert
+            doors[doorId].open = true;
+            continue;
+        }
+
+        // Place the key in a random reachable room
+        const keyRoomId = reachableArray[Math.floor(Math.random() * reachableArray.length)];
+
+        rooms[keyRoomId].items.push({
+            type: 'key',
+            name: `Clau ${lockedCount + 1}`,
+            doorIds: [doorId],
+            cost: 0
+        });
+        lockedCount++;
+    }
+
     return {
         rooms,
         doors,
