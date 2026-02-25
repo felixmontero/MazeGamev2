@@ -93,13 +93,6 @@ export function generateRandomMaze(width, height) {
     // 4. Distribute Items using BFS reachability
     const totalRooms = width * height;
 
-    // Place some coins randomly (~25% of rooms, skip start and target)
-    for (let i = 2; i <= totalRooms; i++) {
-        if (i !== targetRoomId && Math.random() < 0.25) {
-            rooms[i].items.push({ type: 'coin' });
-        }
-    }
-
     // BFS helper: find all rooms reachable from `startId` using only open doors
     function getReachableRooms(fromId, doorsState) {
         const reachable = new Set();
@@ -124,11 +117,31 @@ export function generateRandomMaze(width, height) {
         return reachable;
     }
 
-    // Lock some random doors and place keys in reachable areas
+    // Count coins in a set of rooms
+    function countCoinsInRooms(roomIds) {
+        let total = 0;
+        for (const rid of roomIds) {
+            total += rooms[rid].items.filter(i => i.type === 'coin').length;
+        }
+        return total;
+    }
+
+    // Sum of key costs in a set of rooms (coins that will be spent)
+    function countKeyCostsInRooms(roomIds) {
+        let total = 0;
+        for (const rid of roomIds) {
+            for (const item of rooms[rid].items) {
+                if (item.type === 'key') total += item.cost;
+            }
+        }
+        return total;
+    }
+
+    // Lock some random doors, assign key costs, and guarantee enough coins
     const numLockedDoors = Math.max(1, Math.floor(totalRooms / 15));
     const candidateDoorIds = Object.keys(doors).filter(did => {
         const d = doors[did];
-        return d.room1 !== 1 && d.room2 !== 1; // don't lock doors touching start
+        return d.room1 !== 1 && d.room2 !== 1;
     });
 
     // Shuffle candidates
@@ -146,26 +159,25 @@ export function generateRandomMaze(width, height) {
 
         // Check what rooms are reachable from start with this door locked
         const reachable = getReachableRooms(1, doors);
-
-        // We need to place the key in a reachable room (not target, not start ideally)
         const reachableArray = [...reachable].filter(r => r !== targetRoomId);
 
         if (reachableArray.length < 2) {
-            // Locking this door isolates too much — revert and skip
             doors[doorId].open = true;
             continue;
         }
 
-        // Also verify the target is still eventually reachable if we unlock this door
+        // Verify the target is still eventually reachable if we unlock this door
         doors[doorId].open = true;
         const fullReachable = getReachableRooms(1, doors);
         doors[doorId].open = false;
 
         if (!fullReachable.has(targetRoomId)) {
-            // Target not reachable even without this lock — revert
             doors[doorId].open = true;
             continue;
         }
+
+        // Assign a cost to this key (1 or 2 coins)
+        const keyCost = Math.random() < 0.5 ? 1 : 2;
 
         // Place the key in a random reachable room
         const keyRoomId = reachableArray[Math.floor(Math.random() * reachableArray.length)];
@@ -174,9 +186,36 @@ export function generateRandomMaze(width, height) {
             type: 'key',
             name: `Clau ${lockedCount + 1}`,
             doorIds: [doorId],
-            cost: 0
+            cost: keyCost
         });
+
+        // Now ensure there are enough coins in reachable rooms to buy ALL keys so far
+        // Available coins = coins in reachable area - cost of keys in reachable area
+        const coinsInReachable = countCoinsInRooms(reachable);
+        const keyCostsInReachable = countKeyCostsInRooms(reachable);
+        const surplus = coinsInReachable - keyCostsInReachable;
+
+        if (surplus < 0) {
+            // Need to add |surplus| coins to reachable rooms
+            const coinsNeeded = Math.abs(surplus);
+            // Pick random reachable rooms (not target, not room 1 ideally) to place coins
+            const coinCandidates = reachableArray.filter(r => r !== 1);
+            if (coinCandidates.length === 0) coinCandidates.push(1); // fallback to start room
+
+            for (let c = 0; c < coinsNeeded; c++) {
+                const coinRoomId = coinCandidates[Math.floor(Math.random() * coinCandidates.length)];
+                rooms[coinRoomId].items.push({ type: 'coin' });
+            }
+        }
+
         lockedCount++;
+    }
+
+    // Sprinkle some bonus coins in random rooms for extra fun (~15% of rooms)
+    for (let i = 2; i <= totalRooms; i++) {
+        if (i !== targetRoomId && Math.random() < 0.15) {
+            rooms[i].items.push({ type: 'coin' });
+        }
     }
 
     return {
