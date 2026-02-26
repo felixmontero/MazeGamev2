@@ -1,18 +1,49 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MAZES } from '../game/mazeData.js';
+import { getRanking, getMapKey } from '../game/rankingService.js';
+
+function formatTime(ms) {
+    const totalSecs = Math.floor(ms / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+const MEDALS = ['🥇', '🥈', '🥉'];
 
 export default function StartScreen({ onStart }) {
     const [mode, setMode] = useState('predefined'); // 'predefined' | 'random'
     const [selectedMap, setSelectedMap] = useState(1);
-    const [randomSize, setRandomSize] = useState(10); // user specifies N for NxN
+    const [randomSize, setRandomSize] = useState(10);
+    const [showRanking, setShowRanking] = useState(false);
+    const [ranking, setRanking] = useState(null);
+    const [rankingLoading, setRankingLoading] = useState(false);
+
+    const currentMapKey = mode === 'random'
+        ? getMapKey({ mode: 'random', size: randomSize })
+        : getMapKey({ mode: 'predefined', id: selectedMap });
+
+    const currentMapLabel = mode === 'random'
+        ? `Aleatori ${randomSize}x${randomSize}`
+        : MAZES.find(m => m.id === selectedMap)?.name || `Mapa ${selectedMap}`;
 
     const handlePlay = () => {
-        onStart({
-            mode,
-            id: selectedMap,
-            size: randomSize,
-        });
+        onStart({ mode, id: selectedMap, size: randomSize });
     };
+
+    async function handleShowRanking() {
+        setShowRanking(true);
+        setRankingLoading(true);
+        const scores = await getRanking(currentMapKey);
+        setRanking(scores);
+        setRankingLoading(false);
+    }
+
+    // Reset ranking modal when map selection changes
+    useEffect(() => {
+        setShowRanking(false);
+        setRanking(null);
+    }, [mode, selectedMap, randomSize]);
 
     return (
         <div className="start-screen">
@@ -74,9 +105,44 @@ export default function StartScreen({ onStart }) {
                     )}
                 </div>
 
-                <button className="btn-play" onClick={handlePlay} style={{ marginTop: '1.5rem' }}>
-                    <span className="btn-play-text">⚔️ Jugar</span>
-                </button>
+                <div className="start-buttons">
+                    <button className="btn-play" onClick={handlePlay}>
+                        <span className="btn-play-text">⚔️ Jugar</span>
+                    </button>
+                    <button className="btn-ranking" onClick={handleShowRanking}>
+                        🏆 Rànking
+                    </button>
+                </div>
+
+                {showRanking && (
+                    <div className="ranking-table-wrapper" style={{ marginTop: '1.5rem' }}>
+                        <h3 className="ranking-table-title">🏆 Rànking — {currentMapLabel}</h3>
+                        {rankingLoading ? (
+                            <p style={{ color: 'var(--text-muted)' }}>Carregant...</p>
+                        ) : ranking && ranking.length > 0 ? (
+                            <table className="ranking-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Jugador</th>
+                                        <th>Temps</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {ranking.map((entry, i) => (
+                                        <tr key={entry.id || i}>
+                                            <td>{MEDALS[i] || i + 1}</td>
+                                            <td>{entry.name}</td>
+                                            <td>{formatTime(entry.time)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <p style={{ color: 'var(--text-muted)' }}>Encara no hi ha puntuacions per {currentMapLabel}.</p>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
